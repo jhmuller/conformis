@@ -106,15 +106,10 @@ data$region <- as.factor(data$US_Sales_Region)
 
 ggplot(data, mapping=aes(x=region, y=AllYears)) + 
   #geom_boxplot() + facet_wrap(~vscript)
-  geom_point(mapping=ae(x=region, y=AllYears, col=vscript, pch=alist), position="jitter")  + facet_wrap(~vscript) +
+  geom_point(mapping=aes(x=region, y=AllYears, col=vscript, pch=alist), position="jitter")  + facet_wrap(~vscript) +
    theme(axis.text.x = element_text(angle = 90, hjust = 1))
 
 
-vssum <- data[data$vscript == 1,] %>% group_by(vscript_start) %>%
-  summarize(cnt = n())
-print(vssum, n=40)
-sum(vssum$cnt)
-(sort(vssum))
 
 yearly <- data %>%
   gather("Year", "Sales", "2014", "2015", "2016", "2017", "2018") %>%
