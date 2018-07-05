@@ -4,71 +4,34 @@ library(readr)
 library(ggplot2)
 library(dplyr)
 library(tidyr)
-
+library(lubridate)
+library(glmnet)
+library(forecast)
 # read in the data
 # a bit messy since there are 2 rows of header
-fpath <- "data_orig/VidScrip Statistical Analysis Data - June 2018.csv"
+fpath <- "data_orig/VidScrip Statistical Analysis Data - July 2018.xlsx"
+sheets <- readxl::excel_sheets(fpath)
 
-h1 <- readr::read_delim(fpath, delim=",", col_names = FALSE, n_max = 1, na=" ", quoted_na=FALSE, trim_ws=TRUE )
-h2 <- readr::read_delim(fpath, delim=",", col_names = FALSE, n_max = 1, na=" ", quoted_na=FALSE, trim_ws=TRUE, skip=1 )
+data <- readxl::read_xlsx(fpath, sheet=sheets[1], col_names=FALSE, col_types="text")
+
+odir <- "data_derived"
+dir.create(odir, showWarnings = FALSE)
+opath <- file.path(odir, "VidScrip.csv")
+write.table(data, opath, row.names=FALSE, col.names=FALSE, sep=",")
+opath <- "data_orig/VidScrip Statistical Analysis Data - July 2018.csv"
+h1 <- readr::read_delim(opath, delim=",", col_names = FALSE, n_max = 1, na=" ", quoted_na=FALSE, trim_ws=TRUE )
+h2 <- readr::read_delim(opath, delim=",", col_names = FALSE, n_max = 1, na=" ", quoted_na=FALSE, trim_ws=TRUE, skip=1 )
 
 headr <- paste0(h1, "_", h2)
+headr <- gsub("^NA_", "", headr)
 headr <- gsub("^_", "", headr)
 headr <- gsub("_$", "", headr)
 headr <- gsub(" ", "_", headr)
 headr[headr == ""] <- "Unkn"
 
-data <- readr::read_delim(fpath, delim=",", col_names = headr, trim_ws=TRUE, skip=2, 
-                          col_types = cols(
-                            `A-Listers_-_Listed_On_Conformis_Web_Site_Locator?_(Y=1)` = col_integer(),
-                            `Vidscrips?_(Y=1)` = col_integer(),
-                            Date_Joined_Vidscrips = col_character(),
-                            VidScrips_Visitors_thru_May_31_2018 = col_integer(),
-                            Vidscrips_Views_thru_May_31_2018 = col_number(),
-                            Vidscrips_View_Hours_thru_May_31_2018 = col_double(),
-                            Stat_Analysis_Surgeon_ID = col_character(),
-                            `2014` = col_integer(),
-                            `2015` = col_integer(),
-                            `2016` = col_integer(),
-                            `2017_Jan` = col_integer(),
-                            `2017_Feb` = col_integer(),
-                            `2017_Mar` = col_integer(),
-                            `2017_Apr` = col_integer(),
-                            `2017_May` = col_integer(),
-                            `2017_Jun` = col_integer(),
-                            `2017_Jul` = col_integer(),
-                            `2017_Aug` = col_integer(),
-                            `2017_Sep` = col_integer(),
-                            `2017_Oct` = col_integer(),
-                            `2017_Nov` = col_integer(),
-                            `2017_Dec` = col_integer(),
-                            `2018_Jan` = col_integer(),
-                            `2018_Feb` = col_integer(),
-                            `2018_Mar` = col_integer(),
-                            `2018_Apr` = col_integer(),
-                            `2018_May` = col_integer(),
-                            Unkn = col_character(),
-                            Total_All_Years = col_character(),
-                            `2017_Total` = col_character(),
-                            `2017_as_%_of_Est._Total_Annual` = col_character(),
-                            TTM_Total = col_integer(),
-                            `TTM_as_%_of_Est._Total_Annual` = col_character(),
-                            Monthly_Average_of_TTM = col_character(),
-                            PKR = col_character(),
-                            TKR = col_character(),
-                            `Total_Knee_Replacements_Performed_(Medicare_data_for_any_company's_implant)` = col_character(),
-                            `Estimated_Total_Knee_Replacements_Performed_(TKRs_X_2)` = col_character(),
-                            US_Sales_Region = col_character(),
-                            Sales_Territory = col_character(),
-                            `Core-Based_Statistical_Area_(CBSA)` = col_character(),
-                            City = col_character(),
-                            County = col_character(),
-                            State = col_character(),
-                            ZIP = col_character(),
-                            Primary_Network_Affiliation = col_character(),
-                            Primary_Hospital_Affiliation = col_character()
-                          ))
+data <- readr::read_delim(opath, delim=",", col_names = headr, trim_ws=TRUE, skip=2)
 spec(data)
+
 
 # replace na with 0 for numeric data
 for (ci in seq_along(colnames(data))){
@@ -80,16 +43,18 @@ for (ci in seq_along(colnames(data))){
   }
 }
 
-# create "yearly" data for 2017 and 2018
-data[,'2017'] <- data[ , "2017_Jan"] + data[,'2017_Feb'] + data[,'2017_Mar'] + 
-  data[,'2017_Apr'] + data[,'2017_May'] + data[,'2017_Jun'] + 
-  data[,'2017_Jul'] + data[,'2017_Aug'] + data[, '2017_Sep'] + data[, '2017_Oct'] + 
-  data[, '2017_Nov'] + data[, '2017_Dec']
-data[,'2018'] <- data[ , "2018_Jan"] + data[,'2018_Feb'] + data[,'2018_Mar'] + 
-  data[,'2018_Apr'] + data[,'2018_May']
-
-#  sum across all years
-data[, 'AllYears'] <- data[, '2014'] + data[, '2015'] + data[, '2016']+ data[,'2017'] + data[, '2018']
+# create "yearly" data 
+for (year in c('2014', '2015', '2016', '2017', '2018')){
+  data[, year] <- 0
+  for (mon in c('Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+               'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec')){
+    yearmon <- paste0(year,"_", mon)
+    if (yearmon %in% colnames(data)){
+      #print(yearmon)
+      data[,year] <- data[,year] + data[, yearmon]
+    }
+  }
+}
 
 # factors for alist and vscript
 data[,"alist"] <- factor(data[[1]] )
@@ -102,13 +67,6 @@ data$sid <- data$Stat_Analysis_Surgeon_ID
 # set NA region to "Unknown" and make region a factor
 data$US_Sales_Region[is.na(data$US_Sales_Region)] <- "Unknown"
 data$region <- as.factor(data$US_Sales_Region)
-
-
-ggplot(data, mapping=aes(x=region, y=AllYears)) + 
-  #geom_boxplot() + facet_wrap(~vscript)
-  geom_point(mapping=aes(x=region, y=AllYears, col=vscript, pch=alist), position="jitter")  + facet_wrap(~vscript) +
-   theme(axis.text.x = element_text(angle = 90, hjust = 1))
-
 
 
 yearly <- data %>%
@@ -130,8 +88,12 @@ ggplot(yearly_vs , aes(x=date, y=Sales)) +
             mapping=aes(x=date, y=Sales, group=sid),lwd=2,col="red", alpha=0.2) +
   facet_wrap(~region)
 
+
+# monthly
+
 df <- data %>% 
-  gather("YYYY_MM", "Sales", "2017_Jan":"2018_May") %>%
+  gather("YYYY_MM", "Sales", "2014_Jan":"2018_Jun") %>%
+  mutate(month = gsub('20.._','', YYYY_MM)) %>%  
   mutate(YYYY_MM_DD = paste0(YYYY_MM,"_1" )) %>%
   mutate(date=as.Date(YYYY_MM_DD, format="%Y_%b_%d"))
 glimpse(df)
@@ -144,12 +106,104 @@ df$vscript_started[ ! is.na(df$vscript_start)] <- df$vscript_start[!is.na(df$vsc
 df$vscript_started <- as.factor(df$vscript_started)
 summary(df)
 
+# in the vs program
+vs <- df[df$vscript == 1, ]
+sids <- unique(vs$sid)
+
+diffsum <- 0
+diff <- rep(0, length(sids))
+for (si in seq(1, length(sids))){
+  # si <- 2
+  sid <- sids[si]
+  ss <- vs[vs$sid == sid,]
+  print(si)
+  svec <- ss$Sales
+  start <- which(svec!=0)[1]
+  start_date <- as.character(ss$date[start])
+  start_yyyy_mm <- strsplit(start_date, split="-")[[1]][1:2]
+  start_vec0 = as.numeric(start_yyyy_mm)
+  act = ts(svec[start:length(svec)], frequency=12,
+           start=start_vec)
+
+  svec0 <- ss$Sales[ss$vscript_started==0]
+  if (length(svec0) < 12){
+    next
+  }
+  act0 = ts(svec0[start:length(svec0)], frequency=12,
+            start=start_vec0)
+  start1 <- length(ss$Sales[ss$vscript_started==0]) + 1
+  start_date <- as.character(ss$date[start1])
+  start_yyyy_mm <- strsplit(start_date, split="-")[[1]][1:2]
+  start_vec1 = as.numeric(start_yyyy_mm)
+  act1= ts(ss$Sales[ss$vscript_started==1], frequency=12,
+           start = start_vec1)
+  if (length(act1) == 0){
+    next
+  }
+  tsmod <- tryCatch(stats::HoltWinters(act0, gamma=FALSE), 
+                    error=function(e) NULL,
+                      finally=print("OK"))
+  if (is.null(tsmod)){
+    mtitle <- paste(sid, ": history, no forecast")
+    plot(act, main=mtitle, sub=si)
+    next
+  }
+  pred1 <- forecast(tsmod, h=length(act1))
+  mtitle <- paste(sid, ": Pre-program(line)\n in-program forecast (blue)\nin-program(black circles)")
+  plot(pred1, main=mtitle, sub=si, pch=4)
+  points(act1, col="black", pch=19)
+  #points(act1, col="black")
+  z <- summary(pred1)
+  fcst1 <- z$`Point Forecast`
+  pvec <- svec[start:length(svec)]
+  pvec[(length(pvec) - length(fcst1)+1):length(pvec)] <- fcst1
+  points(ts(fcst1, start=start_vec1, frequency=12), col="blue", pch=19)
+  diff[si] <- sum(fcst1 - as.vector(act1))
+  diffsum <- diffsum + sum(diff[si])
+}
+diff
+diffsum
+
+ggplot() + geom_line(aes(x=seq(1, length(act1), y=act1)))
+plot(tsmod)
+predict.
+ggplot(ss, aes(x=date, y=Sales)) + 
+  geom_line() + 
+  geom_point(data=ss[ss$vscript_started==1,], aes(x=date, y=Sales), col="blue")
+ss
+ss$vscript_start
+#
+#  Regression model
+#
+# id for each doctor
+vsdf <- df[df$vscript==1,]
+lmod <- lm(Sales~region + alist + vscript_started + factor(YYYY_MM) + sid, data=vsdf)
+str(lmod)
+head(coef(summary(lmod)), 27)
+tail (coef(summary(lmod)), 27)
+# glmnet
+X <- model.matrix(~region + alist  + vscript_started + factor(YYYY_MM) + sid, data=vsdf)
+Y <- matrix(vsdf$Sales)
+gmod <- cv.glmnet(x=X, y=Y)
+
+head(coefficients(gmod), 18)
+fitted <- predict(gmod, newx=X)
+ggplot() + geom_point(aes(x=vsdf$Sales, y=fitted, col=vsdf$alist, pch=vsdf$vscript), alpha=0.5) + geom_abline(intercept = 0, slope=1)
+
+
+
+
+
+
 # vscript 
-vs <- df[df$vscript == 1 & df$date >= as.Date("20180101", format="%Y%m%d"),]
+vs <- df[df$vscript == 1 ,]
 summary(vs)
 glimpse(vs[vs$sid == "ST408", ])
-ggplot(data=vs, aes(y=Sales,  x=vscript_started, col=vscript_started)) + geom_point(position="jitter") + facet_wrap(~date)
+ggplot(data=vs, aes(y=Sales,  x=vscript_started, col=vscript_started)) + 
+  geom_boxplot() + 
+  geom_point(position="jitter", alpha=0.18) + facet_wrap(~month)
 
+library(stm)
 
 
 ggplot(data=vs, aes(x=date, y=Sales)) + geom_line(aes(group=sid), col="blue") + 
@@ -173,25 +227,6 @@ reg <- group_by(df, date, region) %>%
 ggplot(reg, mapping=aes(x=date, y=sales, col=region)) + 
   geom_line(lwd=1) + facet_wrap(~region)
 
-
-#
-#  Regression model
-#
-  # id for each doctor
-df$sid = as.factor(df$Stat_Analysis_Surgeon_ID)
-
-lmod <- lm(Sales~region + alist + vscript + vscript_started + factor(YYYY_MM) + sid, data=df)
-str(lmod)
-coef(summary(lmod))
-X <- model.matrix(~region + alist + vscript + vscript_started + factor(YYYY_MM) + sid, data=df)
-Y <- matrix(df$Sales)
-gmod <- cv.glmnet(x=X, y=Y)
-lmod <- lm(x=X, y=Y)
-str(gmod)
-head(coefficients(gmod), 18)
-fitted <- predict(gmod, newx=X)
-ggplot() + geom_point(aes(x=df$Sales, y=fitted, col=df$alist, pch=df$vscript), alpha=0.5) + geom_abline(intercept = 0, slope=1)
-coefficients(gmod)
 
 
 
